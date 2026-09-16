@@ -1,0 +1,12 @@
+Id: AutoGameImporter_9f3c1a52-7d41-4b8e-9c20-5e6a1b8d4f77
+Name: Auto Game Importer
+Author: Sam
+Version: 1.0
+Module: AutoGameImporter.psm1
+Type: Script
+
+# No "Functions:" block here on purpose. Playnite 10.35 ignores that key for
+# script extensions - a deliberately malformed value loads without any error,
+# so it produces no main-menu entries. The extension is driven entirely by the
+# OnApplicationStarted and OnLibraryUpdated events instead, which means
+# "Update Game Library" (F5) doubles as the manual re-scan.
