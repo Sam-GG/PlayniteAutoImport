@@ -1,7 +1,7 @@
 Id: AutoGameImporter_9f3c1a52-7d41-4b8e-9c20-5e6a1b8d4f77
 Name: Auto Game Importer
 Author: Sam
-Version: 1.0
+Version: 1.1
 Module: AutoGameImporter.psm1
 Type: Script
 

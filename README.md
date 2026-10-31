@@ -67,6 +67,21 @@ empty `PluginId` — which is what marks a game as manually added.
 Because both scan triggers are on by default, **F5 (Update Game Library)
 doubles as a manual re-scan**.
 
+### When it scans
+
+Scans always run on a background thread, and Playnite never waits for one.
+That matters because Playnite does not finish starting up until every
+extension's `OnApplicationStarted` handler returns (see the constraints below).
+
+At startup the scan holds off until Playnite's own startup library update
+finishes, so it scans a settled library and already knows about anything that
+update just imported. If no library update arrives — say your updates are set
+to daily — it starts after `StartupDelaySeconds` instead. A library update
+later in the session (F5) scans straight away.
+
+The review window opens on that background thread too, so Playnite stays usable
+while it is up.
+
 ### After importing
 
 Metadata is **not** fetched automatically. Filter on the `Auto-Imported` tag,
@@ -138,7 +153,10 @@ upgrades never clobber your tuning.
 | `AutoAddWithoutReview` | `false` | `true` imports everything found, no prompt |
 | `ScanOnStartup` | `true` | Scan when Playnite launches |
 | `ScanOnLibraryUpdate` | `true` | Scan after a library update, making F5 a manual re-scan |
-| `MinSecondsBetweenScans` | `90` | Suppresses the duplicate scan at startup, when both events fire seconds apart |
+| `StartupDelaySeconds` | `60` | How long the startup scan waits for Playnite's startup library update before going ahead anyway |
+| `MinSecondsBetweenScans` | `90` | Ignores a library-update scan this soon after the previous one |
+| `ScanTimeoutSeconds` | `120` | Abandons a scan that runs longer than this. A normal one takes ~10s |
+| `SlowFolderSeconds` | `5` | Logs any single folder that takes longer than this |
 | `ImportedTagName` | `Auto-Imported` | Tag applied to every import |
 | `PlatformName` | `PC (Windows)` | Blank leaves the platform to your metadata plugins |
 | `SplitCamelCase` | `false` | `ItTakesTwo` → `It Takes Two`, but also `Thronefall` → `Throne Fall`. Off by default; correct names in the dialog instead |
@@ -192,10 +210,19 @@ powershell -sta -ExecutionPolicy Bypass -File test\Test-Dialog.ps1
 
 ---
 
-## Two Playnite 10.35 constraints worth knowing
+## Playnite 10.35 constraints worth knowing
 
-Both were found by testing, and both shaped the design:
+All three were found the hard way, and all three shaped the design:
 
+- **Playnite does not finish starting until `OnApplicationStarted` returns.**
+  The log shows `Application … started`, and the library import begins, only
+  after every extension's handler has come back. Version 1.0 scanned inline
+  there, so every launch was ~8 seconds slower — and when the scan stalled once,
+  Playnite sat on its splash indefinitely. Version 1.1 hands all work to a
+  background runspace and returns in milliseconds. That runspace's thread is
+  marked as a background thread, because PowerShell creates foreground threads
+  by default: a scan stuck on an unresponsive drive would otherwise keep the
+  Playnite process alive after you exit it.
 - **A PowerShell scriptblock cannot be a notification's activation action.**
   Playnite invokes that delegate on the WPF UI thread, which has no PowerShell
   runspace; the resulting `PSInvalidOperationException` is unhandled and takes
@@ -205,18 +232,39 @@ Both were found by testing, and both shaped the design:
   malformed value, which loaded without complaint. This is why the extension is
   driven entirely by the startup and library-update events.
 
-Other notes:
+Emulated games are left alone — that is Playnite's own emulator scanners' job,
+and the ignore list keeps emulator folders out of the way.
 
-- Scanning four roots over ~150 folders takes about 9 seconds, on the
-  background script thread. Playnite's UI stays responsive.
-- Emulated games are left alone — that is Playnite's own emulator scanners'
-  job, and the ignore list keeps emulator folders out of the way.
+## Troubleshooting
+
+Everything the extension does is logged to `%AppData%\Playnite\extensions.log`,
+on lines tagged `[AutoGameImporter]`. A healthy startup looks like:
+
+```
+scanning (startup, after library update): B:\Games; F:\Games; …
+library index: 444 names, 525 paths in 0.3s
+found 0 candidate(s) in 8.8s
+```
+
+Lines worth knowing:
+
+- **`slow folder: <path> took Ns`** — one folder is dragging the scan out. Add
+  it to `IgnoredPaths`, or tighten `ExeSearchDepth`.
+- **`scan requested … while one is still running: … in <path> for Ns`** — a
+  scan is stuck, and this names the folder it is stuck in.
+- **`scan stopped: AutoImportTimeout …`** — a scan exceeded
+  `ScanTimeoutSeconds` and was abandoned. Playnite is unaffected.
+
+If Playnite was ever force-closed during startup, the next launch asks whether
+to start in safe mode. Answer **No**; it is only reporting that the previous
+start never completed.
 
 ## Layout
 
 ```
 src\extension.yaml          Playnite manifest
-src\AutoGameImporter.psm1   Playnite events, library index, game creation
+src\AutoGameImporter.psm1   Playnite events; starts and supervises the worker
+src\Worker.ps1              background job: library index, scan, review, import
 src\Scanner.ps1             scanning + name cleaning (no Playnite dependency)
 src\Defaults.ps1            default config, detection, load/save/merge
 src\ReviewDialog.ps1        the review window

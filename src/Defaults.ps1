@@ -122,11 +122,19 @@ function New-DefaultAutoImportConfig {
 
         # --- when to scan -------------------------------------------------
         # With both on, "Update Game Library" (F5) doubles as a manual re-scan.
+        # Scans always run on a background thread; Playnite never waits for one.
         ScanOnStartup       = $true
         ScanOnLibraryUpdate = $true
-        # Startup fires both events within seconds; this suppresses only that
-        # duplicate, so a deliberate F5 later still scans.
+        # The startup scan holds off until Playnite's own startup library update
+        # finishes, so it sees anything that update imported. If no update comes
+        # (e.g. updates are set to daily), it starts after this many seconds.
+        StartupDelaySeconds = 60
+        # Ignore a library-update scan this soon after the previous one.
         MinSecondsBetweenScans = 90
+        # Give up on a scan that runs longer than this. A normal scan takes ~10s.
+        ScanTimeoutSeconds  = 120
+        # Log any single folder that takes longer than this, to find a culprit.
+        SlowFolderSeconds   = 5
 
         # --- what to do with results -------------------------------------
         # $false -> let you review and tick boxes before anything is added
@@ -151,7 +159,6 @@ function New-DefaultAutoImportConfig {
         StructuralDirPattern = $structuralDirPattern
 
         # --- bookkeeping --------------------------------------------------
-        LastScanUtc        = ''
         ConfigVersion      = 1
     }
 }
